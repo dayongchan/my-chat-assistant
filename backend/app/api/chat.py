@@ -1,5 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.session import get_current_active_user
@@ -46,13 +47,30 @@ def get_conversation(conversation_id: int, db: Session = Depends(get_db), curren
     conversation = ChatService.get_conversation(db, conversation_id, current_user.id)
     if not conversation:
         raise HTTPException(status_code=404, detail="对话不存在")
+    
+    # 获取对话的所有消息
+    messages = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).order_by(Message.created_at.asc()).all()
+    
     # 转换为字典
     return {
         "id": conversation.id,
         "user_id": conversation.user_id,
         "title": conversation.title,
         "created_at": conversation.created_at.isoformat() if conversation.created_at else None,
-        "updated_at": conversation.updated_at.isoformat() if conversation.updated_at else None
+        "updated_at": conversation.updated_at.isoformat() if conversation.updated_at else None,
+        "messages": [
+            {
+                "id": msg.id,
+                "conversation_id": msg.conversation_id,
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                "token_count": msg.token_count
+            }
+            for msg in messages
+        ]
     }
 
 @router.delete("/conversations/{conversation_id}")
@@ -63,7 +81,45 @@ def delete_conversation(conversation_id: int, db: Session = Depends(get_db), cur
         raise HTTPException(status_code=404, detail="对话不存在")
     return {"message": "对话删除成功"}
 
-from pydantic import BaseModel
+class BatchDeleteRequest(BaseModel):
+    conversation_ids: List[int]
+
+@router.delete("/conversations")
+def delete_conversations_batch(request: BatchDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """批量删除对话"""
+    if not request.conversation_ids:
+        raise HTTPException(status_code=400, detail="请提供要删除的对话ID列表")
+    
+    deleted_count = ChatService.delete_conversations_by_ids(db, request.conversation_ids, current_user.id)
+    
+    if deleted_count == 0:
+        raise HTTPException(status_code=404, detail="未找到指定的对话")
+    
+    return {"message": f"成功删除 {deleted_count} 个对话"}
+
+@router.delete("/conversations/all")
+def delete_all_conversations(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """删除用户的所有对话"""
+    deleted_count = ChatService.delete_all_conversations(db, current_user.id)
+    
+    if deleted_count == 0:
+        raise HTTPException(status_code=404, detail="没有找到对话记录")
+    
+    return {"message": f"成功删除所有 {deleted_count} 个对话"}
+
+@router.post("/conversations/batch-delete")
+def batch_delete_conversations(request: BatchDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """批量删除对话（POST方式）"""
+    if not request.conversation_ids:
+        raise HTTPException(status_code=400, detail="请提供要删除的对话ID列表")
+    
+    deleted_count = ChatService.delete_conversations_by_ids(db, request.conversation_ids, current_user.id)
+    
+    if deleted_count == 0:
+        raise HTTPException(status_code=404, detail="未找到指定的对话")
+    
+    return {"message": f"成功删除 {deleted_count} 个对话"}
+
 from fastapi.responses import StreamingResponse
 import json
 

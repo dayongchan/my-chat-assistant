@@ -61,14 +61,21 @@ export const useChatStore = defineStore('chat', {
       this.error = null;
       
       try {
+        console.log('开始获取对话详情，对话ID:', conversationId);
         // 注意：api响应拦截器直接返回response.data，所以不需要再访问response.data
         const conversationData = await api.get(`/api/conversations/${conversationId}`);
+        console.log('获取对话详情成功:', conversationData);
+        console.log('对话消息数量:', conversationData.messages ? conversationData.messages.length : 0);
+        
         this.currentConversation = conversationData;
         this.messages = conversationData.messages || [];
+        
+        console.log('设置后的消息数量:', this.messages.length);
         return conversationData;
       } catch (error) {
-        this.error = error.response?.data?.detail || '获取对话详情失败';
         console.error('获取对话详情失败:', error);
+        console.error('错误详情:', error.response?.data);
+        this.error = error.response?.data?.detail || '获取对话详情失败';
         throw error;
       } finally {
         this.isLoading = false;
@@ -98,6 +105,116 @@ export const useChatStore = defineStore('chat', {
       } catch (error) {
         this.error = error.response?.data?.detail || '删除对话失败';
         console.error('删除对话失败:', error);
+        throw error;
+      } finally {
+        this.isLoading = false;
+      }
+    },
+    
+    // 批量删除对话
+    async deleteConversationsBatch(conversationIds) {
+      this.isLoading = true;
+      this.error = null;
+      
+      try {
+        // 使用POST请求来模拟批量删除，因为DELETE请求可能不支持请求体
+        const response = await api.post('/api/conversations/batch-delete', {
+          conversation_ids: conversationIds
+        });
+        
+        // 从列表中移除已删除的对话
+        this.conversations = this.conversations.filter(
+          conv => !conversationIds.includes(conv.id)
+        );
+        
+        // 如果删除的对话中包含当前对话，清除当前对话
+        if (this.currentConversation && conversationIds.includes(this.currentConversation.id)) {
+          this.currentConversation = null;
+          this.messages = [];
+        }
+        
+        return response;
+      } catch (error) {
+        this.error = error.response?.data?.detail || '批量删除对话失败';
+        console.error('批量删除对话失败:', error);
+        throw error;
+      } finally {
+        this.isLoading = false;
+      }
+    },
+    
+    // 删除所有对话
+    async deleteAllConversations() {
+      this.isLoading = true;
+      this.error = null;
+      
+      try {
+        const response = await api.delete('/api/conversations/all');
+        
+        // 清空所有对话
+        this.conversations = [];
+        this.currentConversation = null;
+        this.messages = [];
+        
+        return response;
+      } catch (error) {
+        this.error = error.response?.data?.detail || '删除所有对话失败';
+        console.error('删除所有对话失败:', error);
+        throw error;
+      } finally {
+        this.isLoading = false;
+      }
+    },
+    
+    // 批量删除对话
+    async deleteConversationsBatch(conversationIds) {
+      this.isLoading = true;
+      this.error = null;
+      
+      try {
+        // 使用POST请求来模拟批量删除，因为DELETE请求可能不支持请求体
+        const response = await api.post('/api/conversations/batch-delete', {
+          conversation_ids: conversationIds
+        });
+        
+        // 从列表中移除已删除的对话
+        this.conversations = this.conversations.filter(
+          conv => !conversationIds.includes(conv.id)
+        );
+        
+        // 如果删除的对话中包含当前对话，清除当前对话
+        if (this.currentConversation && conversationIds.includes(this.currentConversation.id)) {
+          this.currentConversation = null;
+          this.messages = [];
+        }
+        
+        return response;
+      } catch (error) {
+        this.error = error.response?.data?.detail || '批量删除对话失败';
+        console.error('批量删除对话失败:', error);
+        throw error;
+      } finally {
+        this.isLoading = false;
+      }
+    },
+    
+    // 删除所有对话
+    async deleteAllConversations() {
+      this.isLoading = true;
+      this.error = null;
+      
+      try {
+        const response = await api.delete('/api/conversations/all');
+        
+        // 清空所有对话
+        this.conversations = [];
+        this.currentConversation = null;
+        this.messages = [];
+        
+        return response;
+      } catch (error) {
+        this.error = error.response?.data?.detail || '删除所有对话失败';
+        console.error('删除所有对话失败:', error);
         throw error;
       } finally {
         this.isLoading = false;

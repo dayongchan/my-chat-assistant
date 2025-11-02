@@ -12,21 +12,59 @@
         </button>
       </div>
       
+      <!-- 批量操作工具栏 -->
+      <div v-if="conversations.length > 0" class="batch-toolbar">
+        <div class="batch-controls">
+          <label class="select-all-label">
+            <input
+              type="checkbox"
+              v-model="selectAll"
+              @change="handleSelectAll"
+            />
+            全选
+          </label>
+          <span class="selected-count">已选择 {{ selectedConversations.length }} 个对话</span>
+          <div class="batch-actions">
+            <button
+              v-if="selectedConversations.length > 0"
+              class="batch-delete-button"
+              @click="deleteSelectedConversations"
+            >
+              删除选中
+            </button>
+            <button
+              class="delete-all-button"
+              @click="deleteAllConversations"
+            >
+              清空所有
+            </button>
+          </div>
+        </div>
+      </div>
+      
       <div class="conversation-list">
         <div
           v-for="conversation in conversations"
           :key="conversation.id"
-          :class="['conversation-item', { active: currentConversation?.id === conversation.id }]"
+          :class="['conversation-item', { active: currentConversation?.id === conversation.id, selected: selectedConversations.includes(conversation.id) }]"
           @click="selectConversation(conversation.id)"
         >
+          <div class="conversation-checkbox">
+            <input
+              type="checkbox"
+              :value="conversation.id"
+              v-model="selectedConversations"
+              @click.stop
+            />
+          </div>
           <div class="conversation-info">
             <h3 class="conversation-title">{{ conversation.title }}</h3>
             <p class="conversation-preview">{{ getPreviewText(conversation) }}</p>
           </div>
           <button class="delete-button" @click.stop="deleteConversation(conversation.id)">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M14 4.5L10 8.5L14 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <path d="M2 4.5L6 8.5L2 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M3 4L13 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M3 12L13 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
           </button>
         </div>
@@ -155,19 +193,31 @@ export default {
     const messagesContainer = ref(null)
     const inputRef = ref(null)
     
+    // 批量删除相关变量
+    const selectedConversations = ref([])
+    const selectAll = ref(false)
+    
     // 初始化
     onMounted(async () => {
+      // 先初始化用户状态（从localStorage恢复认证状态）
+      userStore.initialize()
+      
       // 确保用户已认证
       if (!userStore.isAuthenticated) {
         router.push('/login')
         return
       }
       
+      console.log("准备加载对话列表")
       // 加载对话列表
       await chatStore.fetchConversations()
       
-      // 如果有对话，自动选择第一个
-      if (chatStore.conversations.length > 0) {
+      // 尝试恢复上次选中的对话
+      const lastConversationId = localStorage.getItem('lastConversationId')
+      if (lastConversationId && chatStore.conversations.some(conv => conv.id === parseInt(lastConversationId))) {
+        await chatStore.setCurrentConversation(parseInt(lastConversationId))
+      } else if (chatStore.conversations.length > 0) {
+        // 如果没有保存的对话ID，自动选择第一个
         await chatStore.setCurrentConversation(chatStore.conversations[0].id)
       }
     })
@@ -192,12 +242,18 @@ export default {
     // 选择对话
     const selectConversation = async (conversationId) => {
       await chatStore.setCurrentConversation(conversationId)
+      // 保存当前对话ID到本地存储
+      localStorage.setItem('lastConversationId', conversationId.toString())
       scrollToBottom()
     }
     
     // 创建新对话
     const handleNewChat = async () => {
-      await chatStore.createConversation()
+      const newConversation = await chatStore.createConversation()
+      // 保存新对话ID到本地存储
+      if (newConversation && newConversation.id) {
+        localStorage.setItem('lastConversationId', newConversation.id.toString())
+      }
       inputRef.value?.focus()
     }
     
@@ -205,6 +261,11 @@ export default {
     const deleteConversation = async (conversationId) => {
       if (confirm('确定要删除这个对话吗？删除后无法恢复。')) {
         await chatStore.deleteConversation(conversationId)
+        // 如果删除的是当前对话，清理本地存储的对话ID
+        const lastConversationId = localStorage.getItem('lastConversationId')
+        if (lastConversationId && parseInt(lastConversationId) === conversationId) {
+          localStorage.removeItem('lastConversationId')
+        }
       }
     }
     
@@ -255,6 +316,49 @@ export default {
       router.push('/login')
     }
     
+    // 批量删除相关函数
+    const handleSelectAll = () => {
+      if (selectAll.value) {
+        selectedConversations.value = conversations.value.map(conv => conv.id)
+      } else {
+        selectedConversations.value = []
+      }
+    }
+    
+    // 删除选中的对话
+    const deleteSelectedConversations = async () => {
+      if (selectedConversations.value.length === 0) return
+      
+      const message = selectedConversations.value.length === 1 
+        ? '确定要删除这个对话吗？删除后无法恢复。'
+        : `确定要删除选中的 ${selectedConversations.value.length} 个对话吗？删除后无法恢复。`
+      
+      if (confirm(message)) {
+        try {
+          await chatStore.deleteConversationsBatch(selectedConversations.value)
+          selectedConversations.value = []
+          selectAll.value = false
+        } catch (error) {
+          console.error('批量删除对话失败:', error)
+        }
+      }
+    }
+    
+    // 删除所有对话
+    const deleteAllConversations = async () => {
+      if (conversations.value.length === 0) return
+      
+      if (confirm(`确定要删除所有 ${conversations.value.length} 个对话吗？删除后无法恢复。`)) {
+        try {
+          await chatStore.deleteAllConversations()
+          selectedConversations.value = []
+          selectAll.value = false
+        } catch (error) {
+          console.error('删除所有对话失败:', error)
+        }
+      }
+    }
+    
     return {
       conversations,
       currentConversation,
@@ -264,13 +368,18 @@ export default {
       useStream,
       messagesContainer,
       inputRef,
+      selectedConversations,
+      selectAll,
       getPreviewText,
       selectConversation,
       handleNewChat,
       deleteConversation,
       updateConversationTitle,
       sendMessage,
-      handleLogout
+      handleLogout,
+      handleSelectAll,
+      deleteSelectedConversations,
+      deleteAllConversations
     }
   }
 }
@@ -389,6 +498,79 @@ export default {
 .delete-button:hover {
   background-color: #fff2f0;
   color: #ff4d4f;
+}
+
+/* 批量操作工具栏样式 */
+.batch-toolbar {
+  padding: 12px 20px;
+  border-bottom: 1px solid #e8e8e8;
+  background-color: #fafafa;
+}
+
+.batch-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #666;
+  cursor: pointer;
+}
+
+.selected-count {
+  font-size: 14px;
+  color: #1890ff;
+  font-weight: 500;
+}
+
+.batch-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.batch-delete-button, .delete-all-button {
+  padding: 6px 12px;
+  border: 1px solid #ff4d4f;
+  border-radius: 4px;
+  background-color: #fff;
+  color: #ff4d4f;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.batch-delete-button:hover, .delete-all-button:hover {
+  background-color: #ff4d4f;
+  color: white;
+}
+
+.batch-delete-button:disabled {
+  border-color: #d9d9d9;
+  background-color: #f5f5f5;
+  color: #bfbfbf;
+  cursor: not-allowed;
+}
+
+/* 对话项选中状态 */
+.conversation-item.selected {
+  background-color: #e6f7ff;
+  border-left: 3px solid #1890ff;
+}
+
+.conversation-checkbox {
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.conversation-checkbox input[type="checkbox"] {
+  cursor: pointer;
 }
 
 .sidebar-footer {

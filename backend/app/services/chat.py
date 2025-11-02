@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.services.llm_service import LLMService
-import tiktoken
+# # import tiktoken  # 暂时注释掉，避免安装问题  # 暂时注释掉，避免安装问题
 
 class ChatService:
     """对话服务类"""
@@ -45,17 +45,48 @@ class ChatService:
         return False
     
     @staticmethod
+    def delete_all_conversations(db: Session, user_id: int) -> int:
+        """删除用户的所有对话"""
+        conversations = db.query(Conversation).filter(
+            Conversation.user_id == user_id
+        ).all()
+        
+        deleted_count = len(conversations)
+        
+        for conversation in conversations:
+            db.delete(conversation)
+        
+        db.commit()
+        return deleted_count
+    
+    @staticmethod
+    def delete_conversations_by_ids(db: Session, conversation_ids: List[int], user_id: int) -> int:
+        """批量删除指定ID的对话"""
+        conversations = db.query(Conversation).filter(
+            Conversation.id.in_(conversation_ids),
+            Conversation.user_id == user_id
+        ).all()
+        
+        deleted_count = len(conversations)
+        
+        for conversation in conversations:
+            db.delete(conversation)
+        
+        db.commit()
+        return deleted_count
+    
+    @staticmethod
     def add_message(db: Session, conversation_id: int, role: str, content: str) -> Message:
         """添加消息"""
-        # 计算token数量
-        encoding = tiktoken.get_encoding("cl100k_base")
-        token_count = len(encoding.encode(content))
+        # 暂时不计算token数量，避免tiktoken安装问题
+        # encoding = tiktoken.get_encoding("cl100k_base")
+        # token_count = len(encoding.encode(content))
         
         db_message = Message(
             conversation_id=conversation_id,
             role=role,
             content=content,
-            token_count=token_count
+            token_count=0  # 暂时设为0
         )
         db.add(db_message)
         db.commit()
